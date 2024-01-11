@@ -11,19 +11,21 @@ module cpu(
 
 reg [27:0] pc;
 reg [31:0] inst_code;
+reg [2:0] state;
+
 reg [31:0] temp_1;
 reg [31:0] temp_2;
-reg [2:0] state;
+wire signed [31:0] temp_1_s = temp_1;
+wire signed [31:0] temp_2_s = temp_2;
 
 wire advance_pc = pc + 1;
 wire branch_addr = 1;
 
-wire result = 1;
+//// Instruction decode logic
 
-wire reg_a = 1;
-wire reg_b = 2;
-
-wire reg_dest = 3;
+//Does the arithmetic instruction use the immediate register format?
+wire op_is_imm = !inst_code[5];
+wire [2:0] funct3 = inst_code[14:12];
 
 //Register fields from instruction 
 wire [5:0] rd = inst_code[11:7];
@@ -38,9 +40,23 @@ wire [31:0] Uimmediate = {inst_code[31:12], {12{1'b0}}};
 wire [31:0] Jimmediate = {{12{inst_code[31]}}, inst_code[31], inst_code[19:12], inst_code[20], inst_code[30:21], {1'b0}}; //Used by jump instructions
 
 //Shift instructions use specialized encoding
-wire [31:0] shifted_reg = inst_code[14] ? //Is right shift?
-													inst_code[30] ? temp_1 >>> inst_code[24:20] : temp_1 >> inst_code[24:20] //Right shift can be logical or arithmetic
-												: temp_1 << inst_code[24:20]; //Left shift is always the same
+wire [4:0] shift_amount = op_is_imm ? temp_2[4:0] : inst_code[24:20];
+
+wire [31:0] shifted_value = funct3[2] ? //Is right shift?
+													inst_code[30] ? temp_1 >>> shift_amount : temp_1 >> shift_amount //Right shift can be logical or arithmetic
+												: temp_1 << shift_amount; //Left shift is always the same
+
+//Arithmetic operations other than bitwise shifts
+wire [31:0] alu_out = 
+	//Only subtract in the case of a register-register operation with bit inst_code[30] set
+	funct3 == 0 ? (op_is_imm || !inst_code[30]) ? temp_1 + temp_2 : temp_1 - temp_2 :
+	funct3 == 1 ? shifted_value :
+	funct3 == 2 ? temp_1_s < temp_2_s :
+	funct3 == 3 ? temp_1 < temp_2 :
+	funct3 == 4 ? temp_1 ^ temp_2 :
+	funct3 == 5 ? shifted_value :
+	funct3 == 6 ? temp_1 | temp_2 :
+	funct3 == 7 ? temp_1 & temp_2 : 0;
 
 always @(posedge clk) begin
 	if(rst) begin
@@ -58,8 +74,6 @@ always @(posedge clk) begin
 		1 : begin
 			//Instruction has been fetched and decoded by the combinational logic
 			//Output reg file addresses
-			port_a_addr <= reg_a;
-			port_b_addr <= reg_b;
 
 			//Output memory address from instruction
 			//mem_addr <= decoded;

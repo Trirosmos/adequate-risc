@@ -1,0 +1,2 @@
+iverilog adequaterisc.v -o adequaterisc
+vvp adequaterisc
